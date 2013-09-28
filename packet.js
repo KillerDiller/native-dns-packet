@@ -175,7 +175,7 @@ function writeHeader(buff, packet) {
   return WRITE_QUESTION;
 }
 
-function writeTruncate(buff, packet, section, val) {
+function writeTruncate(buff, packet, section, last_resource) {
   // XXX FIXME TODO truncation is currently done wrong.
   // Quote rfc2181 section 9
   // The TC bit should not be set merely because some extra information
@@ -188,7 +188,7 @@ function writeTruncate(buff, packet, section, val) {
   //
   // TODO IOW only set TC if we hit it in ANSWERS otherwise make sure an
   // entire RRSet is removed during a truncation.
-  var pos, val;
+  var pos, val, count;
 
   buff.seek(2);
   val = buff.readUInt16BE();
@@ -198,6 +198,7 @@ function writeTruncate(buff, packet, section, val) {
   switch (section) {
     case 'answer':
       pos = 6;
+      count = buff.readUInt16BE();
       // seek to authority and clear it and additional out
       buff.seek(8);
       buff.writeUInt16BE(0);
@@ -205,12 +206,14 @@ function writeTruncate(buff, packet, section, val) {
       break;
     case 'authority':
       pos = 8;
+      count = buff.readUInt16BE();
       // seek to additional and clear it out
       buff.seek(10);
       buff.writeUInt16BE(0);
       break;
     case 'additional':
       pos = 10;
+      count = buff.readUInt16BE();
       break;
   }
   buff.seek(pos);
