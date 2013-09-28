@@ -49,7 +49,7 @@ var Packet = module.exports = function() {
   this.answer = undefined;
   this.authority = undefined;
   this.additional = undefined;
-  this.edns_options = [];
+  this.edns_options = undefined;
   this.payload = undefined;
 };
 
@@ -335,30 +335,42 @@ function writeNaptr(buff, val) {
   return WRITE_RESOURCE_DONE;
 }
 
-function writeEnds(packet) {
+function writeEdns(packet) {
   var val = {
     name: '',
     type: consts.NAME_TO_QTYPE.OPT,
     class: packet.payload
   };
-  var pos = packet.header.rcode;
+
+  // RFC 6891, Section 6.1.3:
+  //   The extended RCODE and flags, which OPT stores in the RR Time to Live
+  //   (TTL) field, are structured as follows:
+  //
+  //                  +0 (MSB)                            +1 (LSB)
+  //       +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //    0: |         EXTENDED-RCODE        |            VERSION            |
+  //       +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //    2: | DO|                           Z                               |
+  //       +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+
   val.ttl = packet.header.rcode >> 4;
-  packet.header.rcode = pos - (val.ttl << 4);
   val.ttl = (val.ttl << 8) + packet.edns_version;
-  val.ttl = (val.ttl << 16) + (packet.do << 15) & 0x8000;
+  val.ttl = (val.ttl << 16) + ((packet.do & 0x1) << 15);
   packet.additional.splice(0, 0, val);
   return WRITE_HEADER;
 }
 
 function writeOpt(buff, packet) {
-  var pos;
+  var val, pos;
 
-  while (packet.edns_options.length) {
-    val = packet.edns_options.pop();
-    buff.writeUInt16BE(val.code);
-    buff.writeUInt16BE(val.data.length);
-    for (pos = 0; pos < val.data.length; pos++) {
-      buff.writeUInt8(val.data.readUInt8(pos));
+  if (typeof(packet.edns_options) !== 'undefined') {
+    while (packet.edns_options.length) {
+      val = packet.edns_options.pop();
+      buff.writeUInt16BE(val.code);
+      buff.writeUInt16BE(val.data.length);
+      for (pos = 0; pos < val.data.length; pos++) {
+        buff.writeUInt8(val.data.readUInt8(pos));
+      }
     }
   }
 
@@ -386,7 +398,7 @@ Packet.write = function(buff, packet) {
     try {
       switch (state) {
         case WRITE_EDNS:
-          state = writeEns(packet);
+          state = writeEdns(packet);
           break;
         case WRITE_HEADER:
           state = writeHeader(buff, packet);
@@ -691,7 +703,7 @@ Packet.parse = function(msg) {
         state = parseSoa(val, msg);
         break;
       case PARSE_OPT:
-        // assert first entry in additional
+        // assert in additional, any position, not more than once (RFC 6891, Section 6.1.1)
         rdata.buf = msg.slice(rdata.len);
         counts[count] -= 1;
         packet.payload = val.class;
@@ -699,16 +711,17 @@ Packet.parse = function(msg) {
         msg.seek(pos - 6);
         packet.header.rcode = (msg.readUInt8() << 4) + packet.header.rcode;
         packet.edns_version = msg.readUInt8();
+        packet.edns_options = [];
         val = msg.readUInt16BE();
         msg.seek(pos);
-        packet.do = (val & 0x8000) << 15;
+        packet.do = (val & 0x8000) >> 15;
         while (!rdata.buf.eof()) {
           packet.edns_options.push({
             code: rdata.buf.readUInt16BE(),
             data: rdata.buf.slice(rdata.buf.readUInt16BE()).buffer
           });
         }
-        state = PARSE_RESOURCE_RECORD;
+        state = PARSE_RESOURCE_DONE;
         break;
       case PARSE_NAPTR:
         state = parseNaptr(val, msg);
