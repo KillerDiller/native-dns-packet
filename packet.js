@@ -64,6 +64,7 @@ function nameUnpack(buff) {
 
   len = buff.readUInt8();
   comp = false;
+  end = buff.tell();
 
   while (len !== 0) {
     if (isPointer(len)) {
