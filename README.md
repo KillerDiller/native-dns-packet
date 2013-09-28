@@ -20,11 +20,11 @@ var Packet = function () {
     res3: 0,
     rcode: 0
   };
-  this.question = [];
-  this.answer = [];
-  this.authority = [];
-  this.additional = [];
-  this.edns_options = [];
+  this.question = undefined;
+  this.answer = undefined;
+  this.authority = undefined;
+  this.additional = undefined;
+  this.edns_options = undefined;
   this.payload = undefined;
 };
 ```
